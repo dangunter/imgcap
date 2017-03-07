@@ -19,7 +19,9 @@ class Caption(object):
         self.p.add_argument('inp', help='Input image file')
         self.p.add_argument('out', help='Output image file')
         self.p.add_argument('txt', help='Caption text (use \'-\' for standard input)')
-        self.p.add_argument('-a', '--anim', help='Animated image', action='store_true', dest='anim')
+        self.p.add_argument('-a', '--anim', help='Animated image',
+                            action='store_true', dest='anim')
+        self.p.add_argument('-f', '--font', help='Font name', dest='fname', default='arial')
         self.p.add_argument('--hpad', dest='padh', type=int, default=default_pad,
                             metavar='PX',
                             help='Horizontal padding, in pixels (default=%(default)s)')
@@ -50,11 +52,12 @@ class Caption(object):
         opts['font_size'] = a.fsize
         opts['padx'] = a.padh
         opts['pady'] = a.padv
+        opts['font'] = a.fname
         if a.txt == '-':
             text = sys.stdin.read()
         else:
             text = a.txt
-        if anim:
+        if a.anim:
             caption_sequence(a.inp, text, a.out, opts)
         else:
             caption_one(a.inp, text, a.out, opts)

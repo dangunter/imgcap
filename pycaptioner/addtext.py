@@ -1,6 +1,7 @@
 """
 Add text to images
 """
+import os, glob
 import textwrap
 from PIL import Image, ImageDraw, ImageFont
 
@@ -11,6 +12,40 @@ class Side(object):
     RIGHT = 2
     BOTTOM = 3
     LEFT = 4
+
+class Fonts(object):
+    default_font_dirs = ['/usr/share/fonts',
+                         os.path.join(os.environ['HOME'], '.fonts')]
+    extensions = ['ttf', 'otf', 'TTF', 'OTF']
+
+    def __init__(self, font_dirs=None):
+        self._fd = font_dirs if font_dirs else self.default_font_dirs
+
+    def __str__(self):
+        paths = ', '.join(self._fd)
+        extensions = ', '.join(self.extensions)
+        return 'fonts with extensions ({e}) in paths: {p}'.format(e=extensions, p=paths)
+
+    def find(self, name):
+        for d1 in self._fd:
+            path = self._find_name(d1, name)
+            if path:
+                return path
+            for d2 in os.listdir(d1):
+                d3 = os.path.join(d1, d2)
+                if os.path.isdir(d3):
+                    path = self._find_name(d3, name)
+                    if path:
+                        return path
+        return None
+
+    def _find_name(self, d, name):
+        #print('DBG: look for fonts in "{}"'.format(d))
+        for ext in self.extensions:
+            target = os.path.join(d, '{name}.{ext}'.format(name=name ,ext=ext))
+            if os.path.exists(target):
+                return target
+        return None
 
 class CapImg(object):
     """Caption an image.
@@ -26,14 +61,13 @@ class CapImg(object):
         finnish_kitties.save("finkitties.jpg")
     """
     default_padding = 5
-    font_file = "/usr/share/fonts/TTF/DroidSans.ttf"
     default_text_fill = (0, 0, 0, 255)
     default_text_bg = (255, 255, 255, 255)
     paragraph_marker = '//'
 
     def __init__(self, im, side=Side.BOTTOM, space=0, font_size=16,
         text_fill=default_text_fill, text_bg=default_text_bg,
-        padx=default_padding, pady=default_padding):
+        padx=default_padding, pady=default_padding, font='DroidSansMono'):
         """Create and prepare for adding text
 
         Args:
@@ -48,7 +82,12 @@ class CapImg(object):
         self._fill = text_fill
         self._bg = text_bg
         self._spc = space
-        self._font = ImageFont.truetype(self.font_file, font_size)
+        # find font
+        fonts = Fonts()
+        ffile = fonts.find(font)
+        if ffile is None:
+            raise ValueError('Cannot find font "{n}" in {f}'.format(n=font, f=fonts))
+        self._font = ImageFont.truetype(ffile, font_size)
 
     def addtext(self, text):
         """
@@ -61,7 +100,10 @@ class CapImg(object):
     def _wrap_text(self, w=0, h=0):
         # calculate height/width of single character
         draw = ImageDraw.Draw(Image.new('RGBA', (1000, 1000)))
-        fx, fy = draw.multiline_textsize('x', font=self._font)
+        fx, fy = draw.multiline_textsize("The quick 'fox' jumps over the lazy dog.",
+                                         font=self._font)
+        fx /= 37
+        #fy += 5
         text = ' '.join(self._text).strip()
         if w > 0:
             # known width
@@ -137,8 +179,8 @@ class CapImg(object):
                 new_height += text_dim[1] + 2 * self._pady
             else:
                 new_width += text_dim[0] + 2 * self._padx
-        cp = Image.new(mode='RGBA', size=(new_width, new_height),
-                       color=self._bg)
+        bgcolor = self._bg
+        cp = Image.new(mode='RGB', size=(new_width, new_height), color=bgcolor)
         # paste original image back in
         if self._side == Side.TOP:
             cp.paste(self._base, (0, new_height - base_height))

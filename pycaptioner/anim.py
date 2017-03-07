@@ -4,7 +4,7 @@ Functions for animated images.
 from PIL import Image
 import numpy
 
-def process_frames(img, func):
+def process_frames(img, func, mode='P'):
     """Process an animated image, applying func() to each frame.
 
     Args:
@@ -21,7 +21,7 @@ def process_frames(img, func):
             img.seek(frame_num)
         except EOFError:
             break
-        new_img = Image.new("RGB", img.size)
+        new_img = img.copy()
         new_img.paste(img)
         mod_img = func(new_img)
         np_img = numpy.array(mod_img)
