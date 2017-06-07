@@ -2,16 +2,18 @@
 Add text to images
 """
 import os, glob
+import re
 import textwrap
 from PIL import Image, ImageDraw, ImageFont
 
 
 class Side(object):
     """Enumeration for 'side' of an image."""
-    TOP = 1
-    RIGHT = 2
-    BOTTOM = 3
-    LEFT = 4
+    # outer
+    TOP, RIGHT, BOTTOM, LEFT = 1, 2, 3, 4
+    # inner
+    NW, NE, SE, SW = 5, 6, 7, 8
+    N, E, W, S = 9, 10, 11, 12
 
 class Fonts(object):
     default_font_dirs = ['/usr/share/fonts',
@@ -82,11 +84,13 @@ class CapImg(object):
         self._fill = text_fill
         self._bg = text_bg
         self._spc = space
+        self._words = None
         # find font
         fonts = Fonts()
         ffile = fonts.find(font)
         if ffile is None:
-            raise ValueError('Cannot find font "{n}" in {f}'.format(n=font, f=fonts))
+            raise ValueError('Cannot find font "{n}" in {f}'.format(
+                n=font, f=fonts))
         self._font = ImageFont.truetype(ffile, font_size)
 
     def addtext(self, text):
@@ -100,7 +104,8 @@ class CapImg(object):
     def _wrap_text(self, w=0, h=0):
         # calculate height/width of single character
         draw = ImageDraw.Draw(Image.new('RGBA', (1000, 1000)))
-        fx, fy = draw.multiline_textsize("The quick 'fox' jumps over the lazy dog.",
+        fx, fy = draw.multiline_textsize("The quick 'fox' "
+                                         "jumps over the lazy dog.",
                                          font=self._font)
         fx /= 37
         #fy += 5
@@ -112,16 +117,18 @@ class CapImg(object):
             lines = self._wrap(text, wrap_width)
         elif w == 0:
             if h < fy:
-                raise ValueError('Image too small to fit one line of text next to it')
+                raise ValueError('Image too small to fit one'
+                                 'line of text next to it')
             # unknown width, need to calculate it
             # start with perfect wrapping and expand out
             n = len(text)
             lines, max_lines = [], h // fy
             wrap_width = max(n // max_lines, 8)
             while wrap_width < n:
-                #print('@@ wrap_width={} max_lines={}'.format(wrap_width, max_lines))
                 lines = self._wrap(text, wrap_width)
-                if len(lines) <= max_lines:
+                # print('@@ wrap_width={} lines={} max_lines={}'
+                #      .format(wrap_width, len(lines), max_lines))
+                if len(lines) <= max_lines and not self._broken_words(text, lines):
                     break
                 wrap_width += 1
         # calculate dimensions
@@ -140,6 +147,23 @@ class CapImg(object):
             else:
                 lines.extend(textwrap.wrap(para, width))
         return lines
+
+    def _broken_words(self, text, lines):
+        if not self._words:
+            self._words = re.findall('\w+', text)
+            # print("@@ WORDS: {}".format(self._words))
+        w = 0
+        for line in lines:
+            line_words = re.findall('\w+', line)
+            for lw in line_words:
+                if self._words[w] != lw:
+                    # print('@@ bad line-word "{}" != next text word "{}"'
+                    # .format(lw, self._words[w]))
+                    return True
+                w += 1
+                if w == len(self._words):
+                    return False
+        return False
 
     def finish(self):
         """Finish the image by putting the caption on it.
@@ -162,7 +186,7 @@ class CapImg(object):
                 text_yoffs = self._pady
             else:
                 text_yoffs = self._base.size[1] + self._pady
-        else:
+        elif self._side in (Side.LEFT, Side.RIGHT):
             text_width = 0 if self._spc == 0 else self._spc - 2 * self._padx
             text_height = self._base.size[1] - 2 * self._pady
             new_width = base_width + self._spc
@@ -172,12 +196,48 @@ class CapImg(object):
                 text_xoffs = self._padx
             else:
                 text_xoffs = base_width + self._padx
+        elif self._side in (Side.NW, Side.NE, Side.SE, Side.SW):
+            new_width, new_height = base_width, base_height
+            text_width = base_width / 2 - 2 * self._padx
+            text_height = base_height / 2
+            if self._side == Side.NE:
+                text_xoffs = base_width/2 + self._padx
+                text_yoffs = self._pady
+            elif self._side == Side.NW:
+                text_xoffs = self._padx
+                text_yoffs = self._pady
+            elif self._side == Side.SE:
+                text_xoffs = self._padx + base_width / 2
+                text_yoffs = self._pady + base_height / 2
+            elif self._side == Side.SW:
+                text_xoffs = self._padx
+                text_yoffs = self._pady + base_height / 2
+        elif self._side in (Side.N, Side.E, Side.W, Side.S):
+            new_width, new_height = base_width, base_height
+            if self._side in (Side.N, Side.S):
+                text_xoffs = self._padx
+                text_height = base_height / 2 - 2 * self._pady
+                text_width = base_width - 2 * self._padx
+                if self._side == Side.N:
+                    text_yoffs = self._pady
+                else:
+                    text_yoffs = self._pady + base_height / 2
+            else:
+                text_yoffs = self._pady
+                text_width = base_width / 2 - 2 * self._padx
+                text_height = base_height - 2 * self._pady
+                if self._side == Side.W:
+                    text_xoffs = self._padx
+                else:
+                    text_xoffs = self._padx + base_width / 2
+        else:
+            raise ValueError("size={} not understood".format(self._side))
         wrapped_text, text_dim = self._wrap_text(w=text_width, h=text_height)
         # auto-calculated text width or height
         if self._spc == 0:
             if self._side in (Side.TOP, Side.BOTTOM):
                 new_height += text_dim[1] + 2 * self._pady
-            else:
+            elif self._side in (Side.LEFT, Side.RIGHT):
                 new_width += text_dim[0] + 2 * self._padx
         bgcolor = self._bg
         cp = Image.new(mode='RGB', size=(new_width, new_height), color=bgcolor)
@@ -188,8 +248,11 @@ class CapImg(object):
             cp.paste(self._base, (0,0))
         elif self._side == Side.LEFT:
             cp.paste(self._base, (new_width - base_width, 0))
+        elif self._side in (Side.NE, Side.NW, Side.SW, Side.SE, Side.N,
+                            Side.E, Side.W, Side.S):
+            cp.paste(self._base, (0, 0))
         else:
-            raise ValueError('Bad value for side')
+            raise ValueError('Bad value for side: {}'.format(self._side))
         # draw text
         draw = ImageDraw.Draw(cp)
         draw.multiline_text((text_xoffs, text_yoffs), wrapped_text,

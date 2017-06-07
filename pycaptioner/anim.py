@@ -1,10 +1,10 @@
 """
 Functions for animated images.
 """
-from PIL import Image
 import numpy
 
-def process_frames(img, func, mode='P'):
+
+def process_frames(img, func):
     """Process an animated image, applying func() to each frame.
 
     Args:
