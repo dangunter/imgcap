@@ -38,8 +38,14 @@ class Caption(object):
                             metavar='PX',
                             help='Horizontal padding, in pixels (default=%(default)s)')
         self.p.add_argument('--vpad', dest='padv', type=int, default=default_pad,
-                            metavar='PX',
+                            metavar='PY',
                             help='Vertical padding, in pixels (default=%(default)s)')
+        self.p.add_argument('--hshift', dest='shiftx', type=int, default=0,
+                            metavar='SX', help='Shift horizontal (ignored if'
+                                               'side is t, b, l, or r)'),
+        self.p.add_argument('--vshift', dest='shifty', type=int, default=0,
+                            metavar='SY', help='Shift vertical (ignored if'
+                                               'side is t, b, l, or r)')
         self.p.add_argument('-r', '--reverse', dest='rev', action='store_true',
                             help='White text on black background')
         self.p.add_argument('-s', '--side', dest='side', default='b',
@@ -90,6 +96,8 @@ class Caption(object):
         opts['font_size'] = a.fsize
         opts['padx'] = a.padh
         opts['pady'] = a.padv
+        opts['shiftx'] = a.shiftx
+        opts['shifty'] = a.shifty
         opts['font'] = a.fname
         if a.txt == '-':
             text = sys.stdin.read()

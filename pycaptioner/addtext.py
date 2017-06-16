@@ -49,6 +49,7 @@ class Fonts(object):
                 return target
         return None
 
+
 class CapImg(object):
     """Caption an image.
 
@@ -68,8 +69,9 @@ class CapImg(object):
     paragraph_marker = '//'
 
     def __init__(self, im, side=Side.BOTTOM, space=0, font_size=16,
-        text_fill=default_text_fill, text_bg=default_text_bg,
-        padx=default_padding, pady=default_padding, font='DroidSansMono'):
+                 text_fill=default_text_fill, text_bg=default_text_bg,
+                 padx=default_padding, pady=default_padding,
+                 shiftx=0, shifty=0, font='DroidSansMono'):
         """Create and prepare for adding text
 
         Args:
@@ -81,6 +83,8 @@ class CapImg(object):
         self._side = side
         self._padx = padx
         self._pady = pady
+        self._shiftx = shiftx
+        self._shifty = shifty
         self._fill = text_fill
         self._bg = text_bg
         self._spc = space
@@ -176,6 +180,7 @@ class CapImg(object):
             (Image) Captioned image
         """
         base_width, base_height = self._base.size
+        text_xoffs, text_yoffs = 0, 0
         if self._side in (Side.TOP, Side.BOTTOM):
             text_width = base_width - 2 * self._padx
             text_height = 0 if self._spc == 0 else self._spc - 2 * self._pady
@@ -208,10 +213,12 @@ class CapImg(object):
                 text_yoffs = self._pady
             elif self._side == Side.SE:
                 text_xoffs = self._padx + base_width / 2
-                text_yoffs = self._pady + base_height / 2
+                text_yoffs = base_height - self._pady - text_height
             elif self._side == Side.SW:
                 text_xoffs = self._padx
                 text_yoffs = self._pady + base_height / 2
+            text_xoffs += self._shiftx
+            text_yoffs += self._shifty
         elif self._side in (Side.N, Side.E, Side.W, Side.S):
             new_width, new_height = base_width, base_height
             if self._side in (Side.N, Side.S):
@@ -221,7 +228,7 @@ class CapImg(object):
                 if self._side == Side.N:
                     text_yoffs = self._pady
                 else:
-                    text_yoffs = self._pady + base_height / 2
+                    text_yoffs = base_height / 2 + self._pady 
             else:
                 text_yoffs = self._pady
                 text_width = base_width / 2 - 2 * self._padx
@@ -230,6 +237,8 @@ class CapImg(object):
                     text_xoffs = self._padx
                 else:
                     text_xoffs = self._padx + base_width / 2
+            text_xoffs += self._shiftx
+            text_yoffs += self._shifty
         else:
             raise ValueError("size={} not understood".format(self._side))
         wrapped_text, text_dim = self._wrap_text(w=text_width, h=text_height)
@@ -248,13 +257,14 @@ class CapImg(object):
             cp.paste(self._base, (0,0))
         elif self._side == Side.LEFT:
             cp.paste(self._base, (new_width - base_width, 0))
-        elif self._side in (Side.NE, Side.NW, Side.SW, Side.SE, Side.N,
-                            Side.E, Side.W, Side.S):
+        elif self._side in (Side.NE, Side.NW, Side.N, Side.E, Side.W, Side.S, Side.SE, Side.SW):
             cp.paste(self._base, (0, 0))
         else:
             raise ValueError('Bad value for side: {}'.format(self._side))
         # draw text
         draw = ImageDraw.Draw(cp)
+        if self._side in (Side.S, Side.SE, Side.SW):
+            text_yoffs += (base_height / 2) - text_dim[1] - 2 * self._pady
         draw.multiline_text((text_xoffs, text_yoffs), wrapped_text,
                             font=self._font, fill=self._fill)
         return cp
