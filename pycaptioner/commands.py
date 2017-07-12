@@ -112,6 +112,8 @@ class Caption(object):
         opts['shifty'] = a.shifty
         opts['font'] = a.fname
         opts['line_spacing'] = a.linespc
+        opts['balloon'] = False
+        opts['balloon_tail'] = None
         if a.bubble:
             a.bubble = a.bubble.strip()
             try:

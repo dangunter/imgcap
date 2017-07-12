@@ -107,6 +107,8 @@ class CapImg(object):
             self._balloon = True
             self._tailx, self._taily = balloon_tail
             self._bfill = balloon_fill
+        else:
+            self._balloon = False
 
     def addtext(self, text):
         """
