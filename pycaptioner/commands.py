@@ -9,6 +9,7 @@ from imageio import mimsave
 
 from . import addtext, anim
 
+
 class Caption(object):
     sides = {'t': addtext.Side.TOP, 'b': addtext.Side.BOTTOM,
              'l': addtext.Side.LEFT, 'r': addtext.Side.RIGHT,
@@ -46,6 +47,9 @@ class Caption(object):
         self.p.add_argument('--vshift', dest='shifty', type=int, default=0,
                             metavar='SY', help='Shift vertical (ignored if'
                                                'side is t, b, l, or r)')
+        self.p.add_argument('-l', '--line-spacing', dest='linespc', type=int,
+                            default=4, help='Line spacing (default=4)',
+                            metavar='POINTS')
         self.p.add_argument('-r', '--reverse', dest='rev', action='store_true',
                             help='White text on black background')
         self.p.add_argument('-s', '--side', dest='side', default='b',
@@ -54,6 +58,13 @@ class Caption(object):
                                  'inside nw, ne, se, sw quadrant, or on '
                                  '(n)orth, (e)ast, (w)est, or (s)outh side. '
                                  'Default is (b)ottom.')
+        self.p.add_argument('-u', '--bubble', dest='bubble',
+                            metavar='COORD', default='',
+                            help='Add text bubble and tail. '
+                                 'Tail coordinates "<x>,<y>" in '
+                                 'pixels from origin in upper-left corner. '
+                                 'Optionally, add "+" at end to fill bubble '
+                                 'with background color.')
         self.p.add_argument('-z', '--font-size', dest='fsize', type=int, default=16,
                             help='Font size, in points. Default is 16pt.')
 
@@ -65,8 +76,9 @@ class Caption(object):
             if len(skey) != 2:
                 skey = skey[0]
             opts['side'] = self.sides[skey]
-        except IndexError:
-            self.p.error('-s/--side must be t,b,l, or r')
+        except KeyError:
+            self.p.error('-s/--side must be one of: t, b, l, r, n, e, w, s, '
+                         'nw, ne, se, sw')
         if a.rev:
             if a.bg:
                 self.p.error('-r/--reverse and -b/--background conflict')
@@ -99,6 +111,19 @@ class Caption(object):
         opts['shiftx'] = a.shiftx
         opts['shifty'] = a.shifty
         opts['font'] = a.fname
+        opts['line_spacing'] = a.linespc
+        if a.bubble:
+            a.bubble = a.bubble.strip()
+            try:
+                if a.bubble.endswith('+'):
+                    a.bubble = a.bubble[:-1]
+                    opts['balloon_fill'] = True
+                parts = a.bubble.split(',')
+                tx, ty = map(int, parts)
+                opts['balloon'] = True
+                opts['balloon_tail'] = (tx, ty)
+            except ValueError:
+                self.p.error('Bad value for -u/--')
         if a.txt == '-':
             text = sys.stdin.read()
         elif a.txt[0] == '@':

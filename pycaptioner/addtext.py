@@ -15,6 +15,11 @@ class Side(object):
     NW, NE, SE, SW = 5, 6, 7, 8
     N, E, W, S = 9, 10, 11, 12
 
+    @classmethod
+    def is_inner(cls, v):
+        return v >= cls.NW
+
+
 class Fonts(object):
     default_font_dirs = ['/usr/share/fonts',
                          os.path.join(os.environ['HOME'], '.fonts')]
@@ -71,7 +76,8 @@ class CapImg(object):
     def __init__(self, im, side=Side.BOTTOM, space=0, font_size=16,
                  text_fill=default_text_fill, text_bg=default_text_bg,
                  padx=default_padding, pady=default_padding,
-                 shiftx=0, shifty=0, font='DroidSansMono'):
+                 shiftx=0, shifty=0, font='DroidSansMono', line_spacing=4,
+                 balloon=False, balloon_tail=(0, 0), balloon_fill=False):
         """Create and prepare for adding text
 
         Args:
@@ -96,6 +102,11 @@ class CapImg(object):
             raise ValueError('Cannot find font "{n}" in {f}'.format(
                 n=font, f=fonts))
         self._font = ImageFont.truetype(ffile, font_size)
+        self._font_spc = line_spacing
+        if balloon and Side.is_inner(self._side):
+            self._balloon = True
+            self._tailx, self._taily = balloon_tail
+            self._bfill = balloon_fill
 
     def addtext(self, text):
         """
@@ -110,7 +121,8 @@ class CapImg(object):
         draw = ImageDraw.Draw(Image.new('RGBA', (1000, 1000)))
         fx, fy = draw.multiline_textsize("The quick 'fox' "
                                          "jumps over the lazy dog.",
-                                         font=self._font)
+                                         font=self._font,
+                                         spacing=self._font_spc)
         fx /= 37
         #fy += 5
         text = ' '.join(self._text).strip()
@@ -261,11 +273,129 @@ class CapImg(object):
             cp.paste(self._base, (0, 0))
         else:
             raise ValueError('Bad value for side: {}'.format(self._side))
-        # draw text
+        # get ready to draw text
         draw = ImageDraw.Draw(cp)
         if self._side in (Side.S, Side.SE, Side.SW):
             text_yoffs += (base_height / 2) - text_dim[1] - 2 * self._pady
+        # draw box
+        if self._balloon:
+            tp = 5
+            self._draw_balloon(draw, text_xoffs - tp, text_yoffs - tp,
+                               text_dim[0] + tp * 2, text_dim[1] + tp * 2,
+                               self._tailx, self._taily)
+        # draw text
         draw.multiline_text((text_xoffs, text_yoffs), wrapped_text,
-                            font=self._font, fill=self._fill)
+                            font=self._font, fill=self._fill,
+                            spacing=self._font_spc)
         return cp
 
+    def _draw_balloon(self, draw, x, y, w, h, tx, ty):
+        """Draw balloon around the text, with tail to (tx, ty).
+
+        Args:
+            draw (PIL.ImageDraw.Draw): Drawing object
+            x (int): upper-left corner x
+            y (int): upper-left corner y
+            w (int): width
+            h (int): height
+            tx (int): Tail end x
+            ty (int): Tail end y
+
+        Returns:
+            None
+        """
+        fill, wid = self._fill, 2
+        # tail
+        seg, seg_side = self._calc_tail(x, y, w, h, tx, ty)
+        if seg:
+            if self._bfill:
+                # draw filled polygon for tail
+                draw.polygon([seg[0], seg[1], (tx, ty)], fill=self._bg,
+                             outline=self._bg)
+            else:
+                # draw 2 lines for tail
+                for i in (0, 1):
+                    draw.line([seg[i], (tx, ty)], fill=fill, width=wid)
+        # calculate rounded corners
+        if w > 50 and h > 50:
+            rr_x, rr_y = 10, 10
+        elif w > 20 and h > 20:
+            rr_x, rr_y = 5, 5
+        else:
+            rr_x, rr_y = 0, 0
+        rr_x2, rr_y2 = rr_x // 2, rr_y // 2
+        if self._bfill:
+            # 2 filled rectangles
+            draw.rectangle((x, y + rr_y2, x + w, y + h - rr_y2), fill=self._bg)
+            draw.rectangle((x + rr_x2, y, x + w - rr_x2, y + h), fill=self._bg)
+        else:
+            # 2 vertical lines
+            for xoffs in (0, w):
+                if (seg_side == Side.LEFT and xoffs == 0) or \
+                        (seg_side == Side.RIGHT and xoffs == w):
+                    vtx = [[(x + xoffs, y + rr_y2), (x + xoffs, seg[0][1])],
+                           [(x + xoffs, seg[1][1]), (x + xoffs, y - rr_y2 + h)]]
+                else:
+                    vtx = [[(x + xoffs, y + rr_y2), (x + xoffs, y - rr_y2 + h)]]
+                for v in vtx:
+                    draw.line(v, fill=fill, width=wid)
+            # 2 horizontal lines
+            for yoffs in (0, h):
+                if (seg_side == Side.TOP and yoffs == 0) or \
+                        (seg_side == Side.BOTTOM and yoffs == h):
+                    vtx = [[(x + rr_x2, y + yoffs), (seg[0][0], y + yoffs)],
+                           [(seg[1][0], y + yoffs), (x - rr_x2 + w, y + yoffs)]]
+                else:
+                    vtx = [[(x + rr_x2, y + yoffs), (x - rr_x2 + w, y + yoffs)]]
+                for v in vtx:
+                    draw.line(v, fill=fill, width=wid)
+        # 4 rounded corners
+        for xoffs, yoffs, sa in ((0, 0, 180),
+                                 (w - rr_x, 0, 270),
+                                 (w - rr_x, h - rr_y, 0),
+                                 (0, h - rr_y, 90)):
+            ea = (sa + 90) % 360
+            if self._bfill:
+                draw.pieslice((x + xoffs, y + yoffs,
+                          x + xoffs + rr_x, y + yoffs + rr_y),
+                         sa, ea, outline=self._bg, fill=self._bg)
+            else:
+                draw.arc((x + xoffs, y + yoffs,
+                          x + xoffs + rr_x, y + yoffs + rr_y),
+                         sa, ea, fill=fill)
+
+    def _calc_tail(self, x, y, w, h, tx, ty):
+        bb = (x - 20, y - 20, x + w + 20, y + h + 20)
+        if bb[0] <= tx <= bb[2] and bb[1] <= ty <= bb[3]:
+            seg, side = None, None
+        else:
+            tw, th = w // 8, h // 8  # tail width/height
+            # two lines through the bounding box, diagonally
+            m1, m2 = h / w, -h / w
+            b1 = y - m1 * x
+            b2 = y + h - m2 * x
+            # print('@@ m1={}, b1={} ;; m2={} b2={}'.format(
+            #    m1, b1, m2, b2))
+            # figure out where tail end is relative to 4 areas
+            # these 2 lines divide the plane into
+            l1_y = m1 * tx + b1
+            l1 = -1 if  1.0 * ty > l1_y else 1
+            l2_y = m2 * tx + b2
+            l2 = -1 if 1.0 * ty > l2_y else 1
+            #print('@@ tx={}, ty={}, l1_y={}, l2_y={} :: l1={} l2={}'.format(
+            #    tx, ty, l1_y, l2_y, l1, l2))
+            # with -1 for below and 1 for above, get coords
+            # for two points defining line segment for start of tail
+            if l1 > 0 and l2 > 0:  # top
+                seg = [(x + (w//2) - tw, y), (x + w//2 + tw, y)]
+                side = Side.TOP
+            elif l1 > 0 and l2 < 0:  # right
+                seg = [(x + w, y + h//2 - th), (x + w, y + h//2 + th)]
+                side = Side.RIGHT
+            elif l1 <0 and l2 > 0:  # left
+                seg = [(x, y + h//2 - th), (x, y + h // 2 + th)]
+                side = Side.LEFT
+            else:  # bottom
+                seg = [(x + w // 2 - tw, y + h), (x + w // 2 + tw, y + h)]
+                side = Side.BOTTOM
+        return seg, side
