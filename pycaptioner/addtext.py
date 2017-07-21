@@ -205,6 +205,8 @@ class CapImg(object):
                 text_yoffs = self._pady
             else:
                 text_yoffs = self._base.size[1] + self._pady
+            text_xoffs += self._shiftx
+            text_yoffs += self._shifty
         elif self._side in (Side.LEFT, Side.RIGHT):
             text_width = 0 if self._spc == 0 else self._spc - 2 * self._padx
             text_height = self._base.size[1] - 2 * self._pady
@@ -215,6 +217,8 @@ class CapImg(object):
                 text_xoffs = self._padx
             else:
                 text_xoffs = base_width + self._padx
+            text_xoffs += self._shiftx
+            text_yoffs += self._shifty
         elif self._side in (Side.NW, Side.NE, Side.SE, Side.SW):
             new_width, new_height = base_width, base_height
             text_width = base_width / 2 - 2 * self._padx
