@@ -405,3 +405,33 @@ class CapImg(object):
                 seg = [(x + w // 2 - tw, y + h), (x + w // 2 + tw, y + h)]
                 side = Side.BOTTOM
         return seg, side
+
+    class BorderImg(object):
+        """Add a border to an image.
+        """
+        Borders = {
+            'straight': 'border1.png',
+            'stars': 'border2.png',
+            'vines': 'border3.png'
+        }
+        def __init__(self, im, border_type):
+            bim = self._get_border_image(border_type)
+            w, h = im.size
+
+        def _get_border_image(self, type_):
+            if not type_ in self.Borders:
+                raise ValueError('Unknown border "{}". Available types: {}'.format(type_,
+                    ', '.join(self.list_border_types())))
+            border_dir = os.path.join(os.path.dirname(__file__), 'data', 'borders')
+            match_file = self.Borders[type_]
+            for fname in glob.glob(os.path.join(border_dir,'border*')):
+                if fname ==  match_file:
+                    img = PIL.open(fname)
+                    break
+            else:
+                raise RuntimeError('Border image "{}" not found in dir "{}"'.format(match_file,
+                    border_dir))
+            return img
+
+
+

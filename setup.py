@@ -7,11 +7,12 @@ dist_name = 'pycaptioner'
 
 setup(
     name=dist_name,
-    packages=find_packages(),
+    packages=['pycaptioner'],
+    package_dir={'pycaptioner': 'pycaptioner'},
+    package_data={'pycaptioner':  ['data/borders/*']},
     version=version,
     install_requires=['pillow'],
     extras_require={},
-    package_data={},
     scripts=glob('scripts/*'),
     author="Dan Gunter",
     author_email="dkgunter@lbl.gov",
