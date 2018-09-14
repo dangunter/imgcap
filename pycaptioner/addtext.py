@@ -4,6 +4,7 @@ Add text to images
 import os, glob
 import re
 import textwrap
+import PIL
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -31,7 +32,8 @@ class Fonts(object):
     def __str__(self):
         paths = ', '.join(self._fd)
         extensions = ', '.join(self.extensions)
-        return 'fonts with extensions ({e}) in paths: {p}'.format(e=extensions, p=paths)
+        return 'fonts with extensions ({e}) in paths: {p}'.format(e=extensions,
+                                                                  p=paths)
 
     def find(self, name):
         for d1 in self._fd:
@@ -47,9 +49,9 @@ class Fonts(object):
         return None
 
     def _find_name(self, d, name):
-        #print('DBG: look for fonts in "{}"'.format(d))
+        # print('DBG: look for fonts in "{}"'.format(d))
         for ext in self.extensions:
-            target = os.path.join(d, '{name}.{ext}'.format(name=name ,ext=ext))
+            target = os.path.join(d, '{name}.{ext}'.format(name=name, ext=ext))
             if os.path.exists(target):
                 return target
         return None
@@ -77,7 +79,8 @@ class CapImg(object):
                  text_fill=default_text_fill, text_bg=default_text_bg,
                  padx=default_padding, pady=default_padding,
                  shiftx=0, shifty=0, font='DroidSansMono', line_spacing=4,
-                 balloon=False, balloon_tail=(0, 0), balloon_fill=False):
+                 balloon=False, balloon_tail=(0, 0), balloon_fill=False,
+                 balloon_margin=0, text_effects=None):
         """Create and prepare for adding text
 
         Args:
@@ -107,8 +110,28 @@ class CapImg(object):
             self._balloon = True
             self._tailx, self._taily = balloon_tail
             self._bfill = balloon_fill
+            self._bmargin = balloon_margin
         else:
             self._balloon = False
+        self._text_effect_stack = []
+        if text_effects:
+            for code, options in text_effects:
+                if code == 'd':
+                    effect = DropShadow
+                    effect_opts = {'depth': int(options[0]),
+                                   'color': options[1]}
+                elif code == 'o':
+                    effect = Outline
+                    effect_opts = {'depth': int(options[0]),
+                                   'color': options[1]}
+                else:
+                    raise ValueError('Unknown text effect code: {}'
+                                     .format(code))
+                self.add_text_effect(effect, effect_opts)
+        self.add_text_effect(BasicText, {})
+
+    def add_text_effect(self, clazz, opts):
+        self._text_effect_stack.append((clazz, opts))
 
     def addtext(self, text):
         """
@@ -126,8 +149,9 @@ class CapImg(object):
                                          font=self._font,
                                          spacing=self._font_spc)
         fx /= 37
-        #fy += 5
+        # fy += 5
         text = ' '.join(self._text).strip()
+        lines = []
         if w > 0:
             # known width
             wrap_width = w / fx
@@ -146,13 +170,14 @@ class CapImg(object):
                 lines = self._wrap(text, wrap_width)
                 # print('@@ wrap_width={} lines={} max_lines={}'
                 #      .format(wrap_width, len(lines), max_lines))
-                if len(lines) <= max_lines and not self._broken_words(text, lines):
+                if len(lines) <= max_lines and not self._broken_words(text,
+                                                                      lines):
                     break
                 wrap_width += 1
         # calculate dimensions
         wrapped = '\n'.join(lines)
         fx, fy = draw.multiline_textsize(wrapped, font=self._font)
-        return (wrapped, (fx, fy))
+        return wrapped, (fx, fy)
 
     def _wrap(self, text, width):
         """Wrap text in paragraphs."""
@@ -224,7 +249,7 @@ class CapImg(object):
             text_width = base_width / 2 - 2 * self._padx
             text_height = base_height / 2
             if self._side == Side.NE:
-                text_xoffs = base_width/2 + self._padx
+                text_xoffs = base_width / 2 + self._padx
                 text_yoffs = self._pady
             elif self._side == Side.NW:
                 text_xoffs = self._padx
@@ -246,7 +271,7 @@ class CapImg(object):
                 if self._side == Side.N:
                     text_yoffs = self._pady
                 else:
-                    text_yoffs = base_height / 2 + self._pady 
+                    text_yoffs = base_height / 2 + self._pady
             else:
                 text_yoffs = self._pady
                 text_width = base_width / 2 - 2 * self._padx
@@ -272,10 +297,11 @@ class CapImg(object):
         if self._side == Side.TOP:
             cp.paste(self._base, (0, new_height - base_height))
         elif self._side == Side.BOTTOM or self._side == Side.RIGHT:
-            cp.paste(self._base, (0,0))
+            cp.paste(self._base, (0, 0))
         elif self._side == Side.LEFT:
             cp.paste(self._base, (new_width - base_width, 0))
-        elif self._side in (Side.NE, Side.NW, Side.N, Side.E, Side.W, Side.S, Side.SE, Side.SW):
+        elif self._side in (
+        Side.NE, Side.NW, Side.N, Side.E, Side.W, Side.S, Side.SE, Side.SW):
             cp.paste(self._base, (0, 0))
         else:
             raise ValueError('Bad value for side: {}'.format(self._side))
@@ -285,14 +311,16 @@ class CapImg(object):
             text_yoffs += (base_height / 2) - text_dim[1] - 2 * self._pady
         # draw box
         if self._balloon:
-            tp = 5
+            tp = self._bmargin
             self._draw_balloon(draw, text_xoffs - tp, text_yoffs - tp,
                                text_dim[0] + tp * 2, text_dim[1] + tp * 2,
                                self._tailx, self._taily)
         # draw text
-        draw.multiline_text((text_xoffs, text_yoffs), wrapped_text,
-                            font=self._font, fill=self._fill,
-                            spacing=self._font_spc)
+        for text_effect_class, kwargs in self._text_effect_stack:
+            te = text_effect_class(draw, **kwargs)
+            te.draw_text(text_xoffs, text_yoffs, wrapped_text,
+                         font=self._font, fill=self._fill,
+                         spacing=self._font_spc)
         return cp
 
     def _draw_balloon(self, draw, x, y, w, h, tx, ty):
@@ -363,8 +391,8 @@ class CapImg(object):
             ea = (sa + 90) % 360
             if self._bfill:
                 draw.pieslice((x + xoffs, y + yoffs,
-                          x + xoffs + rr_x, y + yoffs + rr_y),
-                         sa, ea, outline=self._bg, fill=self._bg)
+                               x + xoffs + rr_x, y + yoffs + rr_y),
+                              sa, ea, outline=self._bg, fill=self._bg)
             else:
                 draw.arc((x + xoffs, y + yoffs,
                           x + xoffs + rr_x, y + yoffs + rr_y),
@@ -385,21 +413,21 @@ class CapImg(object):
             # figure out where tail end is relative to 4 areas
             # these 2 lines divide the plane into
             l1_y = m1 * tx + b1
-            l1 = -1 if  1.0 * ty > l1_y else 1
+            l1 = -1 if 1.0 * ty > l1_y else 1
             l2_y = m2 * tx + b2
             l2 = -1 if 1.0 * ty > l2_y else 1
-            #print('@@ tx={}, ty={}, l1_y={}, l2_y={} :: l1={} l2={}'.format(
+            # print('@@ tx={}, ty={}, l1_y={}, l2_y={} :: l1={} l2={}'.format(
             #    tx, ty, l1_y, l2_y, l1, l2))
             # with -1 for below and 1 for above, get coords
             # for two points defining line segment for start of tail
             if l1 > 0 and l2 > 0:  # top
-                seg = [(x + (w//2) - tw, y), (x + w//2 + tw, y)]
+                seg = [(x + (w // 2) - tw, y), (x + w // 2 + tw, y)]
                 side = Side.TOP
             elif l1 > 0 and l2 < 0:  # right
-                seg = [(x + w, y + h//2 - th), (x + w, y + h//2 + th)]
+                seg = [(x + w, y + h // 2 - th), (x + w, y + h // 2 + th)]
                 side = Side.RIGHT
-            elif l1 <0 and l2 > 0:  # left
-                seg = [(x, y + h//2 - th), (x, y + h // 2 + th)]
+            elif l1 < 0 and l2 > 0:  # left
+                seg = [(x, y + h // 2 - th), (x, y + h // 2 + th)]
                 side = Side.LEFT
             else:  # bottom
                 seg = [(x + w // 2 - tw, y + h), (x + w // 2 + tw, y + h)]
@@ -414,24 +442,79 @@ class CapImg(object):
             'stars': 'border2.png',
             'vines': 'border3.png'
         }
+
         def __init__(self, im, border_type):
             bim = self._get_border_image(border_type)
             w, h = im.size
 
         def _get_border_image(self, type_):
-            if not type_ in self.Borders:
-                raise ValueError('Unknown border "{}". Available types: {}'.format(type_,
-                    ', '.join(self.list_border_types())))
-            border_dir = os.path.join(os.path.dirname(__file__), 'data', 'borders')
+            if type_ not in self.Borders:
+                raise ValueError(
+                    'Unknown border "{}". Available types: {}'
+                        .format(type_, ', '.join(self.list_border_types())))
+            border_dir = os.path.join(os.path.dirname(__file__), 'data',
+                                      'borders')
             match_file = self.Borders[type_]
-            for fname in glob.glob(os.path.join(border_dir,'border*')):
-                if fname ==  match_file:
+            for fname in glob.glob(os.path.join(border_dir, 'border*')):
+                if fname == match_file:
                     img = PIL.open(fname)
                     break
             else:
-                raise RuntimeError('Border image "{}" not found in dir "{}"'.format(match_file,
-                    border_dir))
+                raise RuntimeError(
+                    'Border image "{}" not found in dir "{}"'.format(match_file,
+                                                                     border_dir))
             return img
 
 
+class TextEffect(object):
+    """Base class for text effects.
+    """
 
+    def __init__(self, imgdraw):
+        self._img = imgdraw
+
+    def draw_text(self, text_xoffs, text_yoffs, wrapped_text, **kwargs):
+        pass
+
+
+class BasicText(TextEffect):
+    """Basic multiline text drawing.
+    """
+    def draw_text(self, text_xoffs, text_yoffs, wrapped_text,
+                  font=None, fill=None, spacing=None):
+        self._img.multiline_text((text_xoffs, text_yoffs), wrapped_text,
+                                 font=font, fill=fill, spacing=spacing)
+
+
+class DropShadow(TextEffect):
+    """Drop shadow effect.
+    """
+    def __init__(self, imgdraw, color=None, depth=None):
+        super(DropShadow, self).__init__(imgdraw)
+        self.color, self.depth = color, depth
+
+    def draw_text(self, text_xoffs, text_yoffs, wrapped_text,
+                  font=None, fill=None, spacing=None):
+        xoffs = text_xoffs + self.depth
+        yoffs = text_yoffs + self.depth
+        fill = self.color
+        self._img.multiline_text((xoffs, yoffs), wrapped_text,
+                                 font=font, fill=fill, spacing=spacing)
+
+
+class Outline(TextEffect):
+    """Simple outline effect.
+    """
+    def __init__(self, imgdraw, color=None, depth=None):
+        super(Outline, self).__init__(imgdraw)
+        self.color, self.depth = color, depth
+
+    def draw_text(self, text_xoffs, text_yoffs, wrapped_text,
+                  font=None, fill=None, spacing=None):
+        for xi in -1, 1:
+            for yi in -1, 1:
+                xoffs = text_xoffs + self.depth * xi
+                yoffs = text_yoffs + self.depth * yi
+                fill = self.color
+                self._img.multiline_text((xoffs, yoffs), wrapped_text,
+                                         font=font, fill=fill, spacing=spacing)

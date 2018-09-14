@@ -34,6 +34,10 @@ class Caption(object):
                             default=None, dest='bg')
         self.p.add_argument('-c', '--color', help='Text color', default=None,
                             dest='fg')
+        self.p.add_argument('-e', '--effect', action='append', dest='effects',
+                            help='Text effect (repeatable), use -E for help')
+        self.p.add_argument('-E', action='store_true', dest='show_effects',
+                            help='Show details on adding text effects')
         self.p.add_argument('-f', '--font', help='Font name', dest='fname', default='arial')
         self.p.add_argument('--hpad', dest='padh', type=int, default=default_pad,
                             metavar='PX',
@@ -63,6 +67,8 @@ class Caption(object):
                             help='Add text bubble and tail. '
                                  'Tail coordinates "<x>,<y>" in '
                                  'pixels from origin in upper-left corner. '
+                                 'Optionally, add :<n> to create an internal '
+                                 'margin of <n> pixels (default=5). '
                                  'Optionally, add "+" at end to fill bubble '
                                  'with background color.')
         self.p.add_argument('-z', '--font-size', dest='fsize', type=int, default=16,
@@ -70,6 +76,19 @@ class Caption(object):
 
     def main(self, args):
         a = self.p.parse_args(args)
+        if a.show_effects:
+            print('Add text effects as <code>:<option>,<option>,...\n'
+                  'Available effects:\n'
+                  '  Drop shadow: code=d options=[pixels,color-code]\n'
+                  '    Examples:\n'
+                  '      -e  d:2,red           -- 2-pixel red shadow\n'
+                  '      --effect=d:4,#ffffff  -- 4-pixel white shadow\n'
+                  '  Outline: code=o options=[pixels,color-code]\n'
+                  '    Examples:\n'
+                  '      -e  o:1,red           -- 1-pixel red outline\n'
+                  '      --effect=o:4,#ffffff  -- 4-pixel white outline'
+                  )
+            return 0
         opts = {}
         try:
             skey = a.side.lower()
@@ -114,6 +133,15 @@ class Caption(object):
         opts['line_spacing'] = a.linespc
         opts['balloon'] = False
         opts['balloon_tail'] = None
+        opts['text_effects'] = []
+        for eff in a.effects:
+            code, eopt = None, None
+            try:
+                code, eopt = eff.split(':')
+            except ValueError:
+                self.p.error('Bad value for -e/--effect: {}'.format(eff))
+            eopts = eopt.split(',')
+            opts['text_effects'].append((code, eopts))
         if a.bubble:
             a.bubble = a.bubble.strip()
             try:
@@ -121,9 +149,19 @@ class Caption(object):
                     a.bubble = a.bubble[:-1]
                     opts['balloon_fill'] = True
                 parts = a.bubble.split(',')
+                if ':' in parts[1]:
+                    parts[1], bbm = parts[1].split(':')
+                    try:
+                        bbm = int(bbm)
+                    except ValueError:
+                        self.p.error('Bad value for balloon margin in "{}"'
+                                     .format(a.bubble))
+                else:
+                    bbm = 5
                 tx, ty = map(int, parts)
                 opts['balloon'] = True
                 opts['balloon_tail'] = (tx, ty)
+                opts['balloon_margin'] = bbm
             except ValueError:
                 self.p.error('Bad value for -u/--')
         if a.txt == '-':
