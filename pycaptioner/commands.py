@@ -35,6 +35,7 @@ class Caption(object):
         self.p.add_argument('-c', '--color', help='Text color', default=None,
                             dest='fg')
         self.p.add_argument('-e', '--effect', action='append', dest='effects',
+                            default=[],
                             help='Text effect (repeatable), use -E for help')
         self.p.add_argument('-E', action='store_true', dest='show_effects',
                             help='Show details on adding text effects')
@@ -70,7 +71,8 @@ class Caption(object):
                                  'Optionally, add :<n> to create an internal '
                                  'margin of <n> pixels (default=5). '
                                  'Optionally, add "+" at end to fill bubble '
-                                 'with background color.')
+                                 'with background color. After the "+" you '
+                                 'may add an integer 0-100 for transparency.')
         self.p.add_argument('-z', '--font-size', dest='fsize', type=int, default=16,
                             help='Font size, in points. Default is 16pt.')
 
@@ -145,10 +147,17 @@ class Caption(object):
         if a.bubble:
             a.bubble = a.bubble.strip()
             try:
-                if a.bubble.endswith('+'):
-                    a.bubble = a.bubble[:-1]
+                coords = a.bubble
+                if '+' in a.bubble:
+                    coords, rest = a.bubble.split('+')
                     opts['balloon_fill'] = True
-                parts = a.bubble.split(',')
+                    if rest:
+                        try:
+                            opts['balloon_opacity'] = int(rest)
+                        except ValueError:
+                            self.p.error('Bad value for balloon transparency '
+                                         'in: {}'.format(a.bubble))
+                parts = coords.split(',')
                 if ':' in parts[1]:
                     parts[1], bbm = parts[1].split(':')
                     try:
@@ -179,22 +188,37 @@ class Caption(object):
             text = infile.read()
         else:
             text = a.txt
-        if a.anim:
-            caption_sequence(a.inp, text, a.out, opts)
-        else:
-            caption_one(a.inp, text, a.out, opts)
-
+        try:
+            if a.anim:
+                caption_sequence(a.inp, text, a.out, opts)
+            else:
+                caption_one(a.inp, text, a.out, opts)
+        except ValueError as err:
+            msg = str(err)
+            if 'Cannot find font' in msg:
+                self.p.error('Font error: {}'.format(msg))
+            else:
+                raise
 
 def _parse_color(s):
     result = ImageColor.getrgb(s)
     if len(result) == 3:
         result = tuple(list(result) + [255])
+    #print('@@ parsed color: {}'.format(result))
     return result
 
 
 def caption_one(input_path, caption_text, output_path, options):
     image = Image.open(input_path)
     output_image = _add_caption(image, caption_text, options)
+    do_convert = False
+    for suffix in '.jpg', '.jpeg':
+        if output_path.endswith(suffix) or \
+           output_path.endswith(suffix.upper()):
+            do_convert = True
+            break
+    if do_convert:
+        output_image = output_image.convert('RGB')
     output_image.save(output_path)
 
 
@@ -210,4 +234,3 @@ def _add_caption(image, caption_text, options):
     cap = addtext.CapImg(image, **options)
     cap.addtext(caption_text)
     return cap.finish()
-

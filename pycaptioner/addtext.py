@@ -1,7 +1,9 @@
 """
 Add text to images
 """
-import os, glob
+import glob
+import math
+import os
 import re
 import textwrap
 import PIL
@@ -80,7 +82,7 @@ class CapImg(object):
                  padx=default_padding, pady=default_padding,
                  shiftx=0, shifty=0, font='DroidSansMono', line_spacing=4,
                  balloon=False, balloon_tail=(0, 0), balloon_fill=False,
-                 balloon_margin=0, text_effects=None):
+                 balloon_opacity=100, balloon_margin=0, text_effects=None):
         """Create and prepare for adding text
 
         Args:
@@ -111,6 +113,7 @@ class CapImg(object):
             self._tailx, self._taily = balloon_tail
             self._bfill = balloon_fill
             self._bmargin = balloon_margin
+            self._btransp = int(255. * (balloon_opacity / 100.))
         else:
             self._balloon = False
         self._text_effect_stack = []
@@ -128,7 +131,7 @@ class CapImg(object):
                     raise ValueError('Unknown text effect code: {}'
                                      .format(code))
                 self.add_text_effect(effect, effect_opts)
-        self.add_text_effect(BasicText, {})
+        self.add_text_effect(MulticolorText, {})
 
     def add_text_effect(self, clazz, opts):
         self._text_effect_stack.append((clazz, opts))
@@ -149,7 +152,7 @@ class CapImg(object):
                                          font=self._font,
                                          spacing=self._font_spc)
         fx /= 37
-        # fy += 5
+        fy += 5
         text = ' '.join(self._text).strip()
         lines = []
         if w > 0:
@@ -292,7 +295,7 @@ class CapImg(object):
             elif self._side in (Side.LEFT, Side.RIGHT):
                 new_width += text_dim[0] + 2 * self._padx
         bgcolor = self._bg
-        cp = Image.new(mode='RGB', size=(new_width, new_height), color=bgcolor)
+        cp = Image.new(mode='RGBA', size=(new_width, new_height), color=bgcolor)
         # paste original image back in
         if self._side == Side.TOP:
             cp.paste(self._base, (0, new_height - base_height))
@@ -306,25 +309,27 @@ class CapImg(object):
         else:
             raise ValueError('Bad value for side: {}'.format(self._side))
         # get ready to draw text
-        draw = ImageDraw.Draw(cp)
         if self._side in (Side.S, Side.SE, Side.SW):
             text_yoffs += (base_height / 2) - text_dim[1] - 2 * self._pady
         # draw box
         if self._balloon:
             tp = self._bmargin
-            self._draw_balloon(draw, text_xoffs - tp, text_yoffs - tp,
-                               text_dim[0] + tp * 2, text_dim[1] + tp * 2,
-                               self._tailx, self._taily)
+            cp = self._draw_balloon(cp, text_xoffs - tp, text_yoffs - tp,
+                                   text_dim[0] + tp * 2, text_dim[1] + tp * 2,
+                                   self._tailx, self._taily)
         # draw text
+        img = Image.new('RGBA', cp.size, (255,255,255,0))
+        draw = ImageDraw.Draw(img)
         for text_effect_class, kwargs in self._text_effect_stack:
             te = text_effect_class(draw, **kwargs)
             te.draw_text(text_xoffs, text_yoffs, wrapped_text,
                          font=self._font, fill=self._fill,
                          spacing=self._font_spc)
+        cp = Image.alpha_composite(cp, img)
         return cp
 
-    def _draw_balloon(self, draw, x, y, w, h, tx, ty):
-        """Draw balloon around the text, with tail to (tx, ty).
+    def _draw_balloon(self, base, x, y, w, h, tx, ty):
+        """Draw balloon around the text with tail to (tx, ty).
 
         Args:
             draw (PIL.ImageDraw.Draw): Drawing object
@@ -336,16 +341,20 @@ class CapImg(object):
             ty (int): Tail end y
 
         Returns:
-            None
+            Composited image
         """
+        img = Image.new('RGBA', base.size, (255,255,255,0))
+        draw = ImageDraw.Draw(img)
+        # add balloon transparency
+        bg = tuple(list(self._bg[:3]) + [self._btransp])
         fill, wid = self._fill, 2
         # tail
         seg, seg_side = self._calc_tail(x, y, w, h, tx, ty)
         if seg:
             if self._bfill:
                 # draw filled polygon for tail
-                draw.polygon([seg[0], seg[1], (tx, ty)], fill=self._bg,
-                             outline=self._bg)
+                draw.polygon([seg[0], seg[1], (tx, ty)], fill=bg,
+                             outline=bg)
             else:
                 # draw 2 lines for tail
                 for i in (0, 1):
@@ -359,9 +368,10 @@ class CapImg(object):
             rr_x, rr_y = 0, 0
         rr_x2, rr_y2 = rr_x // 2, rr_y // 2
         if self._bfill:
-            # 2 filled rectangles
-            draw.rectangle((x, y + rr_y2, x + w, y + h - rr_y2), fill=self._bg)
-            draw.rectangle((x + rr_x2, y, x + w - rr_x2, y + h), fill=self._bg)
+            # 2 filled rectangles: leaving four corners alone, overlapping
+            # in the middle
+            draw.rectangle((x, y + rr_y2, x + w, y + h - rr_y2), fill=bg)
+            draw.rectangle((x + rr_x2, y, x + w - rr_x2, y + h), fill=bg)
         else:
             # 2 vertical lines
             for xoffs in (0, w):
@@ -392,11 +402,14 @@ class CapImg(object):
             if self._bfill:
                 draw.pieslice((x + xoffs, y + yoffs,
                                x + xoffs + rr_x, y + yoffs + rr_y),
-                              sa, ea, outline=self._bg, fill=self._bg)
+                              sa, ea, outline=bg, fill=bg)
             else:
                 draw.arc((x + xoffs, y + yoffs,
                           x + xoffs + rr_x, y + yoffs + rr_y),
                          sa, ea, fill=fill)
+        # composite bubble onto image
+        out = Image.alpha_composite(base, img)
+        return out
 
     def _calc_tail(self, x, y, w, h, tx, ty):
         bb = (x - 20, y - 20, x + w + 20, y + h + 20)
@@ -480,13 +493,48 @@ class TextEffect(object):
 class BasicText(TextEffect):
     """Basic multiline text drawing.
     """
-    def draw_text(self, text_xoffs, text_yoffs, wrapped_text,
-                  font=None, fill=None, spacing=None):
+    def draw_text(self, *args, **kwargs):
+        self.multiline_text(*args, **kwargs)
+
+    def multiline_text(self, text_xoffs, text_yoffs, wrapped_text,
+                       font=None, fill=None, spacing=None):
         self._img.multiline_text((text_xoffs, text_yoffs), wrapped_text,
                                  font=font, fill=fill, spacing=spacing)
 
+class MulticolorText(BasicText):
+    def multiline_text(self, text_xoffs, text_yoffs, text,
+                       font=None, fill=None, spacing=None):
+        offset = (text_xoffs, text_yoffs)
+        font_width, font_height = font.getsize('X')
+        pieces = re.split(r'\{([^}]*)\}', text)
+        if len(pieces) == 1:
+            self._img.multiline_text(offset, text, font=font,
+                                     fill=fill, spacing=spacing)
+        else:
+            i = 0
+            color = fill
+            x, y = offset
+            space_width = font.getsize(' ')[0]
+            shift = ''
+            for p in pieces:
+                if i % 2 == 0:
+                    #print("draw at ({x}, {y}): {t}".format(x=x, y=y, t=p))
+                    self._img.multiline_text((x, y), shift + p, font=font,
+                                             fill=color, spacing=spacing)
+                    dx, dy = self._img.multiline_textsize(p, font=font)
+                    y += dy - font_height
+                    last_line = p.split('\n')[-1]
+                    n = font.getsize(last_line)[0]
+                    nspaces = int(math.ceil(n / space_width))
+                    shift = ' ' * nspaces
+                else:
+                    if p == '':
+                        color = fill
+                    else:
+                        color = p
+                i += 1
 
-class DropShadow(TextEffect):
+class DropShadow(MulticolorText):
     """Drop shadow effect.
     """
     def __init__(self, imgdraw, color=None, depth=None):
@@ -498,11 +546,11 @@ class DropShadow(TextEffect):
         xoffs = text_xoffs + self.depth
         yoffs = text_yoffs + self.depth
         fill = self.color
-        self._img.multiline_text((xoffs, yoffs), wrapped_text,
-                                 font=font, fill=fill, spacing=spacing)
+        self.multiline_text(xoffs, yoffs, wrapped_text,
+                            font=font, fill=fill, spacing=spacing)
 
 
-class Outline(TextEffect):
+class Outline(BasicText):
     """Simple outline effect.
     """
     def __init__(self, imgdraw, color=None, depth=None):
@@ -516,5 +564,6 @@ class Outline(TextEffect):
                 xoffs = text_xoffs + self.depth * xi
                 yoffs = text_yoffs + self.depth * yi
                 fill = self.color
-                self._img.multiline_text((xoffs, yoffs), wrapped_text,
-                                         font=font, fill=fill, spacing=spacing)
+                self.multiline_text(xoffs, yoffs, wrapped_text,
+                                    font=font, fill=fill, spacing=spacing)
+
